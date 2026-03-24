@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+
+sample_data/debug_export.gds
+sample_data/smoke_output.gds
+sample_data/smoke_output.svg
+sample_data/verify.gds
