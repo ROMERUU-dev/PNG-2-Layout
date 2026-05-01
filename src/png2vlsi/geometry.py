@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .models import PhysicalRectangle, Rectangle
+from .models import LayerResult, PhysicalRectangle, Rectangle
 
 
 class GeometryUtils:
@@ -15,6 +15,22 @@ class GeometryUtils:
         rgba[:, :, 1] = expanded
         rgba[:, :, 2] = expanded
         rgba[:, :, 3] = 255
+        return rgba
+
+    @staticmethod
+    def layer_results_to_preview(layer_results: list[LayerResult], scale: int = 8) -> np.ndarray:
+        if not layer_results:
+            return np.zeros((scale, scale, 4), dtype=np.uint8)
+
+        height, width = layer_results[0].pixel_mask.shape
+        rgba = np.zeros((height * scale, width * scale, 4), dtype=np.uint8)
+        rgba[:, :, 3] = 255
+        for layer_result in layer_results:
+            expanded = np.repeat(np.repeat(layer_result.pixel_mask, scale, axis=0), scale, axis=1)
+            color = layer_result.source_rgb or layer_result.layer.preview_rgb or (255, 255, 255)
+            rgba[expanded, 0] = color[0]
+            rgba[expanded, 1] = color[1]
+            rgba[expanded, 2] = color[2]
         return rgba
 
     @staticmethod

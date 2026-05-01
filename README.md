@@ -1,34 +1,39 @@
 # PNG to VLSI Pixel Layout
 
-Local Linux desktop application built with PySide6 to convert a transparent PNG logo into a strictly orthogonal pixel-art layout and export it as SVG, DXF, and GDS.
+Desktop application for Ubuntu/Linux that converts PNG images into orthogonal VLSI-style pixel geometry and exports `SVG`, `DXF`, and `GDS`.
 
-## Features
+## Current Features
 
-- Load transparent PNG files and detect visible content from the alpha channel.
-- Preview the original image and the orthogonal pixelated result.
-- Configure alpha threshold, cleanup rules, grid resolution, and physical scaling.
-- Keep geometry strictly rectangle-based with no diagonals, curves, or splines.
-- Merge adjacent active grid cells into larger rectangles for cleaner export.
-- Export to SVG, DXF, and GDS with layer metadata.
+- Two workflows in the GUI:
+  - `Alpha Monochrome` for transparent or single-layer images
+  - `Solid Multicolor` for segmented color images mapped to selected metals
+- Manual metal selection for multicolor flow: `met1` to `met5`
+- Built-in DRC-oriented Manhattan cleanup
+- Background remover tool in `Tools -> Background Remover...`
+- Activity panel with step-by-step processing log
+- Default physical size starts in `Fit Inside Box` at `30um x 30um` to avoid huge accidental outputs
+
+## Important Notes
+
+- `met5` is available in the GUI, but Tiny Tapeout does not allow `metal5`.
+- Geometry stays orthogonal on purpose: no curves, splines, or diagonal reconstruction are generated.
+- The DRC cleanup is defensive, but final signoff still belongs to your layout tool flow, for example Magic or KLayout checks.
 
 ## Project Structure
 
 ```text
-png2vlsi_pixel/
+PNG-2-Layout/
 ├── README.md
+├── VERSION
 ├── requirements.txt
 ├── run_app.py
-├── sample_data/
-│   ├── ardilla.png
-│   ├── generate_sample_logo.py
-│   └── sample_logo.png
 ├── assets/
-│   └── pxl.svg
+├── sample_data/
 ├── scripts/
+│   ├── build_deb.sh
 │   └── smoke_test.py
 └── src/
     └── png2vlsi/
-        ├── __init__.py
         ├── app.py
         ├── cleanup.py
         ├── geometry.py
@@ -39,80 +44,125 @@ png2vlsi_pixel/
         ├── pixelation.py
         ├── scaling.py
         ├── exporters/
-        │   ├── __init__.py
-        │   ├── dxf_exporter.py
-        │   ├── gds_exporter.py
-        │   └── svg_exporter.py
         └── gui/
-            ├── __init__.py
-            └── main_window.py
+            ├── background_remover_dialog.py
+            ├── main_window.py
+            └── preferences_dialog.py
 ```
 
-## Requirements
+## Local Run
 
-- Linux
-- Python 3.10+
-- Qt runtime compatible with PySide6
-
-Python dependencies are listed in `requirements.txt`.
-
-## Installation
-
-1. Create a virtual environment:
+1. Create the environment:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-2. Install dependencies:
-
-```bash
 pip install -r requirements.txt
 ```
 
-3. Run the app:
+2. Launch the GUI:
 
 ```bash
 python3 run_app.py
 ```
 
-## Usage
+## GUI Workflow
 
-1. Click `Load PNG` and select a transparent logo image.
-2. Adjust the alpha threshold if needed to separate visible pixels from the background.
-3. Choose the pixelation mode:
-   - `Rows / Columns`
-   - `Source Pixel Size`
-4. Configure cleanup:
-   - remove tiny islands
-   - fill small holes
-   - trim transparent margins
-5. Configure physical scaling:
-   - define pixel size in micrometers
-   - or target width / target height in micrometers
-6. Review the pixelated preview and the exported statistics.
-7. Export as SVG, DXF, or GDS.
+### 1. Alpha Monochrome
 
-## Notes
+Use this tab when the image is already transparent or should become a single metal layer.
 
-- The first version is intentionally orthogonal-only.
-- No diagonal reconstruction, smoothing, Bezier curves, or 45-degree geometry are generated.
-- Geometry is handled internally as rectangles to stay robust and predictable for layout tools such as KLayout.
-- The architecture leaves room for future DRC-like checks such as minimum width and spacing validation.
+- Load the image
+- Pick the logical metal
+- Adjust alpha threshold
+- Set pixelation and scaling
+- Export
 
-## Sample Data
+### 2. Solid Multicolor
 
-A simple sample logo is included at [ardilla.png](/home/romeruu/png2vlsi_pixel/sample_data/ardilla.png). The launcher icon can be placed at `[assets/pxl.svg](/home/romeruu/png2vlsi_pixel/assets/pxl.svg)`. You can regenerate the older sample with:
+Use this tab when the image has solid regions and you want to split it across multiple metals.
 
-```bash
-python3 sample_data/generate_sample_logo.py
-```
+- Load the image
+- Select which metals are allowed
+- Adjust alpha threshold for visible pixels
+- Preview the segmented result
+- Export
+
+The detected color regions are assigned in order to the checked metals.
+
+## Background Remover Tool
+
+Open `Tools -> Background Remover...`
+
+This tool is meant for PNGs that still have a colored background.
+
+- Click directly on the unwanted background color
+- Increase or decrease `Color Tolerance`
+- Use the alpha threshold gate to avoid touching already transparent pixels
+- Repeat as many times as needed
+- Click `Use In App` to load the edited PNG back into the main application
+- Or save the edited PNG manually
 
 ## Validation
 
-Basic non-GUI validation script:
+Run the basic pipeline validation:
 
 ```bash
 python3 scripts/smoke_test.py
 ```
+
+## Debian Package Build
+
+This repository includes a Debian packaging script that vendors the Python dependencies into the package, so installation on another Ubuntu machine is straightforward.
+
+Build the package:
+
+```bash
+./scripts/build_deb.sh
+```
+
+Or build an explicit version:
+
+```bash
+./scripts/build_deb.sh 0.2.0
+```
+
+The output lands in `dist/` as:
+
+```text
+png-2-layout_<version>_<arch>.deb
+```
+
+## Install The `.deb` On Ubuntu
+
+On the target machine:
+
+```bash
+sudo apt install ./png-2-layout_<version>_<arch>.deb
+```
+
+If `apt` asks to resolve dependencies, let it do so. The package already includes the Python-side dependencies; Ubuntu only needs the system libraries listed in the package control file.
+
+After install, launch from:
+
+- Applications menu: `PNG 2 Layout`
+- Terminal:
+
+```bash
+png-2-layout
+```
+
+## Portable Ubuntu Notes
+
+The `.deb` is intended to be installable on other Ubuntu systems as long as they have:
+
+- `python3`
+- standard X11/Qt runtime libraries required by PySide6
+
+The package script already declares these runtime dependencies in `DEBIAN/control`.
+
+## Repository
+
+GitHub:
+
+`https://github.com/ROMERUU-dev/PNG-2-Layout`

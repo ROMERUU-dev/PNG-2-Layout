@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-0.1.0}"
 PACKAGE="png-2-layout"
 APP_NAME="PNG 2 Layout"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
+VERSION="${1:-$DEFAULT_VERSION}"
 ARCH="$(dpkg --print-architecture)"
 BUILD_ROOT="$ROOT_DIR/build/deb"
 PKG_ROOT="$BUILD_ROOT/${PACKAGE}_${VERSION}_${ARCH}"
 APP_DIR="$PKG_ROOT/usr/share/$PACKAGE"
 DIST_DIR="$ROOT_DIR/dist"
+DPKG_COMPRESSOR="${DPKG_COMPRESSOR:-gzip}"
+DPKG_COMPRESSION_LEVEL="${DPKG_COMPRESSION_LEVEL:-1}"
 
 rm -rf "$BUILD_ROOT"
 mkdir -p \
@@ -24,6 +27,7 @@ cp -a "$ROOT_DIR/src" "$APP_DIR/"
 cp -a "$ROOT_DIR/assets" "$APP_DIR/"
 cp -a "$ROOT_DIR/sample_data" "$APP_DIR/"
 cp "$ROOT_DIR/README.md" "$APP_DIR/"
+cp "$ROOT_DIR/VERSION" "$APP_DIR/"
 cp "$ROOT_DIR/requirements.txt" "$APP_DIR/"
 cp "$ROOT_DIR/run_app.py" "$APP_DIR/"
 
@@ -32,6 +36,11 @@ python3 -m pip install \
   --no-compile \
   --target "$APP_DIR/vendor" \
   -r "$ROOT_DIR/requirements.txt"
+
+find "$APP_DIR/src" -type d -name __pycache__ -prune -exec rm -rf {} +
+find "$APP_DIR/src" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+rm -f "$APP_DIR/sample_data"/smoke_output.*
+rm -f "$APP_DIR/sample_data"/smoke_multicolor_output.*
 
 cat > "$PKG_ROOT/usr/bin/$PACKAGE" <<'EOF'
 #!/usr/bin/env bash
@@ -73,4 +82,10 @@ Description: Convert PNG logos into VLSI pixel layout exports
  SVG, DXF, and GDS files.
 EOF
 
-dpkg-deb --build --root-owner-group "$PKG_ROOT" "$DIST_DIR/${PACKAGE}_${VERSION}_${ARCH}.deb"
+dpkg-deb \
+  -Z"$DPKG_COMPRESSOR" \
+  -z"$DPKG_COMPRESSION_LEVEL" \
+  --build \
+  --root-owner-group \
+  "$PKG_ROOT" \
+  "$DIST_DIR/${PACKAGE}_${VERSION}_${ARCH}.deb"

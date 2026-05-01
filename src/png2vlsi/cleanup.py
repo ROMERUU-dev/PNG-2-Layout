@@ -32,10 +32,20 @@ class GeometryCleanup:
 
     @staticmethod
     def trim_margins(mask: np.ndarray) -> np.ndarray:
+        bounds = GeometryCleanup.trim_bounds(mask)
+        return GeometryCleanup.crop_to_bounds(mask, bounds)
+
+    @staticmethod
+    def trim_bounds(mask: np.ndarray) -> tuple[int, int, int, int]:
         ys, xs = np.nonzero(mask)
         if len(xs) == 0 or len(ys) == 0:
-            return mask[:1, :1].copy()
-        return mask[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
+            return (0, 1, 0, 1)
+        return (int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1)
+
+    @staticmethod
+    def crop_to_bounds(mask: np.ndarray, bounds: tuple[int, int, int, int]) -> np.ndarray:
+        y0, y1, x0, x1 = bounds
+        return mask[y0:y1, x0:x1].copy()
 
     @staticmethod
     def _filter_components(
@@ -95,11 +105,21 @@ class GridDrcCleanup:
         cleaned = mask.astype(bool, copy=True)
         for _ in range(max(0, settings.orthogonal_cleanup_iterations)):
             cleaned = GridDrcCleanup._cleanup_jogs(cleaned)
+            cleaned = GridDrcCleanup._close_diagonal_gaps(cleaned)
+            cleaned = GridDrcCleanup._fill_single_cell_notches(cleaned)
 
         if settings.minimum_spacing_cells > 1:
             cleaned = GridDrcCleanup._fill_small_gaps(cleaned, settings.minimum_spacing_cells)
+            cleaned = GridDrcCleanup._close_diagonal_gaps(cleaned)
         if settings.minimum_width_cells > 1:
             cleaned = GridDrcCleanup._remove_narrow_runs(cleaned, settings.minimum_width_cells)
+            cleaned = GridDrcCleanup._remove_thin_islands(cleaned, settings.minimum_width_cells)
+
+        # One final Manhattan pass after spacing/width repair tends to remove
+        # leftover pinches and corner artifacts created by earlier fixes.
+        cleaned = GridDrcCleanup._cleanup_jogs(cleaned)
+        cleaned = GridDrcCleanup._close_diagonal_gaps(cleaned)
+        cleaned = GridDrcCleanup._fill_single_cell_notches(cleaned)
 
         return cleaned
 
@@ -133,6 +153,71 @@ class GridDrcCleanup:
         GridDrcCleanup._remove_runs_along_axis(result, minimum_width, horizontal=True)
         GridDrcCleanup._remove_runs_along_axis(result, minimum_width, horizontal=False)
         return result
+
+    @staticmethod
+    def _close_diagonal_gaps(mask: np.ndarray) -> np.ndarray:
+        result = mask.copy()
+        height, width = mask.shape
+        for y in range(height - 1):
+            for x in range(width - 1):
+                block = mask[y : y + 2, x : x + 2]
+                if block[0, 0] and block[1, 1] and not block[0, 1] and not block[1, 0]:
+                    result[y : y + 2, x : x + 2] = True
+                elif block[0, 1] and block[1, 0] and not block[0, 0] and not block[1, 1]:
+                    result[y : y + 2, x : x + 2] = True
+        return result
+
+    @staticmethod
+    def _fill_single_cell_notches(mask: np.ndarray) -> np.ndarray:
+        result = mask.copy()
+        height, width = mask.shape
+        for y in range(1, height - 1):
+            for x in range(1, width - 1):
+                if mask[y, x]:
+                    continue
+                left = mask[y, x - 1]
+                right = mask[y, x + 1]
+                up = mask[y - 1, x]
+                down = mask[y + 1, x]
+                if (left and right) or (up and down):
+                    result[y, x] = True
+        return result
+
+    @staticmethod
+    def _remove_thin_islands(mask: np.ndarray, minimum_width: int) -> np.ndarray:
+        if minimum_width <= 1:
+            return mask
+
+        result = mask.copy()
+        height, width = mask.shape
+        for y in range(height):
+            for x in range(width):
+                if not mask[y, x]:
+                    continue
+                horizontal = GridDrcCleanup._run_length(mask, x, y, horizontal=True)
+                vertical = GridDrcCleanup._run_length(mask, x, y, horizontal=False)
+                if horizontal < minimum_width and vertical < minimum_width:
+                    result[y, x] = False
+        return result
+
+    @staticmethod
+    def _run_length(mask: np.ndarray, x: int, y: int, horizontal: bool) -> int:
+        length = 1
+        dx, dy = (1, 0) if horizontal else (0, 1)
+
+        cursor_x, cursor_y = x - dx, y - dy
+        while 0 <= cursor_x < mask.shape[1] and 0 <= cursor_y < mask.shape[0] and mask[cursor_y, cursor_x]:
+            length += 1
+            cursor_x -= dx
+            cursor_y -= dy
+
+        cursor_x, cursor_y = x + dx, y + dy
+        while 0 <= cursor_x < mask.shape[1] and 0 <= cursor_y < mask.shape[0] and mask[cursor_y, cursor_x]:
+            length += 1
+            cursor_x += dx
+            cursor_y += dy
+
+        return length
 
     @staticmethod
     def _fill_gaps_along_axis(mask: np.ndarray, minimum_spacing: int, horizontal: bool) -> None:
